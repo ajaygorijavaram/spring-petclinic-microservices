@@ -1,6 +1,6 @@
 pipeline {
     agent any
-    tools { jdk 'JDK17' }                    // use the Java 17 we registered
+    tools { jdk 'JDK17' }
 
     parameters {
         choice(name: 'DEPLOY_ENV', choices: ['dev','uat','prod'], description: 'Target environment')
@@ -13,24 +13,38 @@ pipeline {
 
     stages {
         stage('Checkout') {
-            steps { checkout scm }            // pull the code
+            steps { checkout scm }
         }
         stage('Build') {
-            steps { sh './mvnw -B clean package -DskipTests' }   // compile + package, skip tests for speed
+            steps { sh './mvnw -B clean package -DskipTests' }
         }
-        stage('Unit Tests') {
-            steps { sh './mvnw -B test' }     // run the tests
+        stage('Unit Tests & Coverage') {
+            steps { sh './mvnw -B verify' }          // verify runs tests + generates JaCoCo coverage
             post {
-                always { junit '**/target/surefire-reports/*.xml' }   // publish the test report
+                always { junit '**/target/surefire-reports/*.xml' }
+            }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar') {           // injects the server URL + token
+                    sh './mvnw -B sonar:sonar -Dsonar.projectKey=petclinic -Dsonar.projectName=petclinic'
+                }
+            }
+        }
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true   // BLOCKS the build if the gate fails
+                }
             }
         }
         stage('Archive Artifact') {
-            steps { archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true }  // save the built jars
+            steps { archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true }
         }
     }
 
     post {
-        success { echo '✅ Build succeeded' }
-        failure { echo '❌ Build failed' }
+        success { echo '✅ Pipeline succeeded' }
+        failure { echo '❌ Pipeline failed' }
     }
 }
